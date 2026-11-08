@@ -1,9 +1,11 @@
 module github.com/Chukwuemekaeze/anibants-dot-federation/server
 
-go 1.24.13
+go 1.26.0
 
 require (
+	github.com/caarlos0/env/v11 v11.4.2
 	github.com/google/uuid v1.6.0
+	github.com/joho/godotenv v1.5.1
 	github.com/uptrace/bun v1.3.0
 	github.com/uptrace/bun/dialect/pgdialect v1.3.0
 	github.com/uptrace/bun/driver/pgdriver v1.3.0
