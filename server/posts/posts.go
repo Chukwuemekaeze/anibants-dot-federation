@@ -19,6 +19,16 @@ import (
 // ErrEmptyBody is returned for a post with no text.
 var ErrEmptyBody = errors.New("post body is empty")
 
+// Enqueuer is anything that can queue a job, like a Python Protocol.
+// The real Asynq client qualifies automatically because it has this method,
+// and a test or demo can pass in a stand-in instead.
+type Enqueuer interface {
+	EnqueueContext(ctx context.Context, task *asynq.Task, opts ...asynq.Option) (*asynq.TaskInfo, error)
+}
+
+// Fails the build if the real Asynq client ever stops matching Enqueuer.
+var _ Enqueuer = (*asynq.Client)(nil)
+
 // CreateInput is what a new post needs.
 type CreateInput struct {
 	CircleID uuid.UUID
@@ -31,7 +41,7 @@ type CreateInput struct {
 // Deliberately naive: the save and the queuing are two separate steps. If the
 // program dies between them, the post exists but is never delivered. Step 3
 // exposes this gap and step 4 closes it with the transactional outbox.
-func Create(ctx context.Context, db *bun.DB, queue *asynq.Client, in CreateInput) (*models.Post, error) {
+func Create(ctx context.Context, db *bun.DB, queue Enqueuer, in CreateInput) (*models.Post, error) {
 	if strings.TrimSpace(in.Body) == "" {
 		return nil, ErrEmptyBody
 	}
