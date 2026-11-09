@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"github.com/hibiken/asynq"
 
 	"github.com/Chukwuemekaeze/anibants-dot-federation/server/config"
+	"github.com/Chukwuemekaeze/anibants-dot-federation/server/db"
 	"github.com/Chukwuemekaeze/anibants-dot-federation/server/jobs"
 	"github.com/Chukwuemekaeze/anibants-dot-federation/server/logging"
 )
@@ -25,6 +27,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Jobs read posts, so the worker needs the database too.
+	database, err := db.Open(context.Background(), cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("start worker", "err", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: cfg.RedisJobsAddr},
 		asynq.Config{
@@ -35,9 +45,12 @@ func main() {
 		},
 	)
 
+	// The handlers get the database once here, instead of each job opening its own.
+	handlers := &jobs.Handlers{DB: database}
+
 	// The mux routes each job type to its handler, like a router for jobs.
 	mux := asynq.NewServeMux()
-	mux.HandleFunc(jobs.TypeDeliverPost, jobs.HandleDeliverPost)
+	mux.HandleFunc(jobs.TypeDeliverPost, handlers.DeliverPost)
 
 	slog.Info("worker starting", "redis", cfg.RedisJobsAddr, "concurrency", cfg.WorkerConcurrency)
 	// Run blocks until Ctrl+C or a stop signal, then lets running jobs finish.
