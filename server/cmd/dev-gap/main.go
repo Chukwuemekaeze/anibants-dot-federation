@@ -2,6 +2,9 @@
 // It creates posts with a simulated crash between the two steps, then
 // compares the posts in Postgres with the jobs waiting in Redis.
 //
+// Both modes here are the naive approach, kept only in this tool for
+// comparison. The real posts.Create uses the transactional outbox instead.
+//
 // Run it on a fresh database and job queue with no worker running, because
 // the report counts everything there. Run dev-seed first. Development only.
 //
@@ -29,6 +32,7 @@ import (
 	"github.com/Chukwuemekaeze/anibants-dot-federation/server/devseed"
 	"github.com/Chukwuemekaeze/anibants-dot-federation/server/jobs"
 	"github.com/Chukwuemekaeze/anibants-dot-federation/server/logging"
+	"github.com/Chukwuemekaeze/anibants-dot-federation/server/outbox"
 	"github.com/Chukwuemekaeze/anibants-dot-federation/server/posts"
 )
 
@@ -38,7 +42,7 @@ var errSimulatedCrash = errors.New("simulated crash between the two steps")
 func main() {
 	n := flag.Int("n", 1000, "number of posts to attempt")
 	failRate := flag.Float64("fail", 0.1, "chance of a crash between the two steps, 0 to 1")
-	order := flag.String("order", "save-first", "save-first (the real posts.Create) or queue-first (reversed, demo only)")
+	order := flag.String("order", "save-first", "save-first or queue-first (both naive)")
 	flag.Parse()
 	ctx := context.Background()
 
@@ -73,8 +77,7 @@ func main() {
 
 		switch *order {
 		case "save-first":
-			// The real code path, handed a queue that sometimes fails.
-			_, err = posts.Create(ctx, database, flakyQueue{real: client, failRate: *failRate}, in)
+			err = createSaveFirst(ctx, database, client, in, *failRate)
 		case "queue-first":
 			err = createQueueFirst(ctx, database, client, in, *failRate)
 		default:
@@ -91,33 +94,38 @@ func main() {
 	report(ctx, database, inspector, *order, *n, crashes)
 }
 
-// flakyQueue wraps the real queue and fails a share of the calls. It has the
-// same method as the real client, so it also counts as a posts.Enqueuer.
-type flakyQueue struct {
-	real     posts.Enqueuer
-	failRate float64
-}
-
-func (q flakyQueue) EnqueueContext(ctx context.Context, task *asynq.Task, opts ...asynq.Option) (*asynq.TaskInfo, error) {
-	if rand.Float64() < q.failRate {
-		return nil, errSimulatedCrash
+// createSaveFirst is the naive version that posts.Create used to be:
+// save the post, then queue its job, as two separate steps.
+func createSaveFirst(ctx context.Context, database *bun.DB, queue outbox.Enqueuer, in posts.CreateInput, failRate float64) error {
+	post, task, err := newPostAndTask(in)
+	if err != nil {
+		return err
 	}
-	return q.real.EnqueueContext(ctx, task, opts...)
+
+	// Step 1: save the post.
+	if _, err := database.NewInsert().Model(post).Exec(ctx); err != nil {
+		return err
+	}
+
+	// The crash lands after the post is saved but before its job is queued.
+	if rand.Float64() < failRate {
+		return errSimulatedCrash
+	}
+
+	// Step 2: queue the job.
+	_, err = queue.EnqueueContext(ctx, task)
+	return err
 }
 
-// createQueueFirst is posts.Create with the two steps swapped. It exists only
-// here, to show that changing the order moves the gap instead of closing it.
-func createQueueFirst(ctx context.Context, database *bun.DB, queue posts.Enqueuer, in posts.CreateInput, failRate float64) error {
-	id, err := uuid.NewV7()
+// createQueueFirst swaps the two steps, to show that changing the order
+// moves the gap instead of closing it.
+func createQueueFirst(ctx context.Context, database *bun.DB, queue outbox.Enqueuer, in posts.CreateInput, failRate float64) error {
+	post, task, err := newPostAndTask(in)
 	if err != nil {
 		return err
 	}
 
 	// Step 1: queue the job.
-	task, err := jobs.NewDeliverPostTask(id)
-	if err != nil {
-		return err
-	}
 	if _, err := queue.EnqueueContext(ctx, task); err != nil {
 		return err
 	}
@@ -128,9 +136,21 @@ func createQueueFirst(ctx context.Context, database *bun.DB, queue posts.Enqueue
 	}
 
 	// Step 2: save the post.
-	post := &models.Post{ID: id, CircleID: in.CircleID, AuthorID: in.AuthorID, Body: in.Body}
 	_, err = database.NewInsert().Model(post).Exec(ctx)
 	return err
+}
+
+func newPostAndTask(in posts.CreateInput) (*models.Post, *asynq.Task, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, nil, err
+	}
+	task, err := jobs.NewDeliverPostTask(id)
+	if err != nil {
+		return nil, nil, err
+	}
+	post := &models.Post{ID: id, CircleID: in.CircleID, AuthorID: in.AuthorID, Body: in.Body}
+	return post, task, nil
 }
 
 // report compares the post IDs in Postgres with the post IDs inside the jobs

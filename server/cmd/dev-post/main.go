@@ -1,5 +1,6 @@
 // Command dev-post creates test posts in the seeded Circle through the real
-// post creation path, which also queues each post's delivery job.
+// post creation path, which saves each post and its delivery job in the
+// outbox together. The worker's outbox relay then queues the jobs.
 // Run dev-seed first. A development tool only.
 //
 //	go run ./cmd/dev-post -n 5
@@ -11,8 +12,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-
-	"github.com/hibiken/asynq"
 
 	"github.com/Chukwuemekaeze/anibants-dot-federation/server/config"
 	"github.com/Chukwuemekaeze/anibants-dot-federation/server/db"
@@ -43,11 +42,8 @@ func main() {
 	}
 	defer database.Close()
 
-	queue := asynq.NewClient(asynq.RedisClientOpt{Addr: cfg.RedisJobsAddr})
-	defer queue.Close()
-
 	for i := 1; i <= *n; i++ {
-		post, err := posts.Create(ctx, database, queue, posts.CreateInput{
+		post, err := posts.Create(ctx, database, posts.CreateInput{
 			CircleID: devseed.CircleID,
 			AuthorID: devseed.UserID,
 			Body:     fmt.Sprintf("test post %d", i),
