@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -10,7 +11,10 @@ import (
 // cleared, so the real server/.env and your shell never leak in.
 func isolate(t *testing.T) {
 	t.Chdir(t.TempDir())
-	for _, key := range []string{"DATABASE_URL", "REDIS_JOBS_ADDR", "REDIS_CACHE_ADDR"} {
+	for _, key := range []string{
+		"DATABASE_URL", "REDIS_JOBS_ADDR", "REDIS_CACHE_ADDR",
+		"LOG_FORMAT", "LOG_LEVEL", "WORKER_CONCURRENCY",
+	} {
 		t.Setenv(key, "")
 		os.Unsetenv(key)
 	}
@@ -34,7 +38,20 @@ func TestDefaultsApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.RedisJobsAddr != "localhost:6380" || cfg.RedisCacheAddr != "localhost:6381" {
-		t.Fatalf("defaults not applied: %+v", cfg)
+		t.Fatalf("redis defaults not applied: %+v", cfg)
+	}
+	if cfg.LogFormat != "text" || cfg.LogLevel != slog.LevelInfo || cfg.WorkerConcurrency != 20 {
+		t.Fatalf("logging or worker defaults not applied: %+v", cfg)
+	}
+}
+
+func TestMisspeltLogLevelFails(t *testing.T) {
+	isolate(t)
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("LOG_LEVEL", "loud")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for an unknown log level")
 	}
 }
 

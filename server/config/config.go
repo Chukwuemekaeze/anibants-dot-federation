@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
@@ -17,6 +18,14 @@ type Config struct {
 	DatabaseURL    string `env:"DATABASE_URL,required"`
 	RedisJobsAddr  string `env:"REDIS_JOBS_ADDR" envDefault:"localhost:6380"`
 	RedisCacheAddr string `env:"REDIS_CACHE_ADDR" envDefault:"localhost:6381"`
+
+	// "text" for readable coloured output, "json" for servers and log tools.
+	LogFormat string `env:"LOG_FORMAT" envDefault:"text"`
+	// debug, info, warn or error. A misspelt level fails at startup.
+	LogLevel slog.Level `env:"LOG_LEVEL" envDefault:"info"`
+
+	// How many jobs one worker runs at the same time.
+	WorkerConcurrency int `env:"WORKER_CONCURRENCY" envDefault:"20"`
 }
 
 // Load reads .env from the current folder if there is one, then fills Config
