@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Each test runs in an empty temporary folder with the relevant variables
@@ -14,6 +15,7 @@ func isolate(t *testing.T) {
 	for _, key := range []string{
 		"DATABASE_URL", "REDIS_JOBS_ADDR", "REDIS_CACHE_ADDR",
 		"LOG_FORMAT", "LOG_LEVEL", "WORKER_CONCURRENCY",
+		"OUTBOX_POLL_INTERVAL", "OUTBOX_BATCH_SIZE",
 	} {
 		t.Setenv(key, "")
 		os.Unsetenv(key)
@@ -42,6 +44,9 @@ func TestDefaultsApply(t *testing.T) {
 	}
 	if cfg.LogFormat != "text" || cfg.LogLevel != slog.LevelInfo || cfg.WorkerConcurrency != 20 {
 		t.Fatalf("logging or worker defaults not applied: %+v", cfg)
+	}
+	if cfg.OutboxPollInterval != 500*time.Millisecond || cfg.OutboxBatchSize != 100 {
+		t.Fatalf("outbox defaults not applied: %+v", cfg)
 	}
 }
 

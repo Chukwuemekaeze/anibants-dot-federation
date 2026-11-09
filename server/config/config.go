@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
@@ -26,6 +27,11 @@ type Config struct {
 
 	// How many jobs one worker runs at the same time.
 	WorkerConcurrency int `env:"WORKER_CONCURRENCY" envDefault:"20"`
+
+	// How often the outbox relay checks for unsent jobs, written like 500ms or 2s.
+	OutboxPollInterval time.Duration `env:"OUTBOX_POLL_INTERVAL" envDefault:"500ms"`
+	// The most outbox rows the relay takes in one go.
+	OutboxBatchSize int `env:"OUTBOX_BATCH_SIZE" envDefault:"100"`
 }
 
 // Load reads .env from the current folder if there is one, then fills Config
